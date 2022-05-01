@@ -361,3 +361,9 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+/glfw3.dll
+/VulkanProject.sln
+/VulkanProject.vcxproj
+/VulkanProject.vcxproj.filters
+/lib
+/include
