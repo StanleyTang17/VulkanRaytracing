@@ -2,6 +2,10 @@
 #define VK_UTIL_H
 
 #include <vulkan/vulkan.h>
+
+#define GLM_FORCE_RADIANS
+#include <glm/glm.hpp>
+
 #include <stdexcept>
 #include <vector>
 #include <optional>
@@ -11,6 +15,12 @@ struct QueueFamilyIndices {
     std::optional<uint32_t> presentFamily;
 
     bool isComplete() { return graphicsFamily.has_value() && presentFamily.has_value(); }
+};
+
+struct UniformBufferObject {
+    glm::mat4 model;
+    glm::mat4 view;
+    glm::mat4 proj;
 };
 
 QueueFamilyIndices findQueueFamilies(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface);
