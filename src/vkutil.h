@@ -25,6 +25,8 @@ struct UniformBufferObject {
 
 QueueFamilyIndices findQueueFamilies(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface);
 uint32_t findMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags properties);
+VkCommandBuffer startSingleTimeCommand(VkDevice device, VkCommandPool pool);
+void endSingleTimeCommand(VkDevice device, VkCommandPool pool, VkQueue queue, VkCommandBuffer commandBuffer);
 void copyBuffer(VkDevice device, VkCommandPool commandPool, VkQueue queue, VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
 
 namespace VkInit {
@@ -41,6 +43,24 @@ namespace VkInit {
         void* const initData = nullptr,
         size_t initDataSize = 0
     );
+    void Image2D(
+        VkPhysicalDevice physicalDevice,
+        VkDevice device,
+        uint32_t width,
+        uint32_t height,
+        VkFormat format,
+        VkImageTiling tiling,
+        VkImageUsageFlags usage,
+        VkMemoryPropertyFlags memProperties,
+        VkImage* pImage,
+        VkDeviceMemory* pImageMemory
+    );
+    void ImageView2D(VkDevice device, VkImage image, VkFormat format, VkImageView* pImageView);
+}
+
+namespace VkCmd {
+    void transitionImageLayout(VkCommandBuffer commandBuffer, VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
+    void copyBufferToImage(VkCommandBuffer commandBuffer, VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
 }
 
 #endif
