@@ -4,6 +4,7 @@
 #include <vulkan/vulkan.h>
 
 #define GLM_FORCE_RADIANS
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
 
 #include <stdexcept>
@@ -25,6 +26,8 @@ struct UniformBufferObject {
 
 QueueFamilyIndices findQueueFamilies(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface);
 uint32_t findMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags properties);
+VkFormat findSupportedFormat(VkPhysicalDevice physicalDevice, const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
+bool hasStencilComponent(VkFormat format);
 VkCommandBuffer startSingleTimeCommand(VkDevice device, VkCommandPool pool);
 void endSingleTimeCommand(VkDevice device, VkCommandPool pool, VkQueue queue, VkCommandBuffer commandBuffer);
 void copyBuffer(VkDevice device, VkCommandPool commandPool, VkQueue queue, VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
@@ -55,7 +58,7 @@ namespace VkInit {
         VkImage* pImage,
         VkDeviceMemory* pImageMemory
     );
-    void ImageView2D(VkDevice device, VkImage image, VkFormat format, VkImageView* pImageView);
+    void ImageView2D(VkDevice device, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, VkImageView* pImageView);
 }
 
 namespace VkCmd {
