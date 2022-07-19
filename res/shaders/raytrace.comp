@@ -1,0 +1,14 @@
+#version 450 core
+
+layout (local_size_x = 16, local_size_y = 16) in;
+layout (binding = 0) uniform UniformBufferObject {
+    mat4 model;
+    mat4 view;
+    mat4 proj;
+} ubo;
+layout (binding = 1, rgba32f) uniform image2D image_data;
+
+void main()
+{
+	imageStore(image_data, ivec2(gl_GlobalInvocationID.xy), vec4(vec3(ubo.model[0]), 1.0));
+}
