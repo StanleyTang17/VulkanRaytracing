@@ -568,8 +568,8 @@ private:
         VkGraphicsPipelineCreateInfo pipelineCreateInfo{};
 
         // Shader stages
-        std::vector<char> vertShaderCode = readFile("res/shaders/triangle.vert.spv");
-        std::vector<char> fragShaderCode = readFile("res/shaders/triangle.frag.spv");
+        std::vector<char> vertShaderCode = readFile("res/shaders/quad.vert.spv");
+        std::vector<char> fragShaderCode = readFile("res/shaders/quad.frag.spv");
 
         VkShaderModule vertShaderModule, fragShaderModule;
         VkInit::ShaderModule(device, vertShaderCode, &vertShaderModule);
