@@ -72,10 +72,7 @@ public:
 private:
     GLFWwindow* window;
     const uint32_t WIDTH = 800;
-    const uint32_t HEIGHT = 600;
-
-    const std::string MODEL_PATH = "res/models/viking_room.obj";
-    const std::string TEXTURE_PATH = "res/models/viking_room.png";
+    const uint32_t HEIGHT = 640;
 
     const std::vector<const char*> validationLayers = {
         "VK_LAYER_KHRONOS_validation"
@@ -155,9 +152,9 @@ private:
         glfwInit();
 
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API); // Disable OpenGL context
-        glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+        glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
-        window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan Project", nullptr, nullptr);
+        window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan Raytracing Project", nullptr, nullptr);
         glfwSetWindowUserPointer(window, this);
         glfwSetWindowSizeCallback(window, framebufferResizeCallback);
     }
