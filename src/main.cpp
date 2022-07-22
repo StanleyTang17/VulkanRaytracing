@@ -603,9 +603,9 @@ private:
         // Viewport state
         VkViewport viewport{};
         viewport.x = 0.0f;
-        viewport.y = 0.0f;
-        viewport.width = (float)swapChainExtent.width;
-        viewport.height = (float)swapChainExtent.height;
+        viewport.y = (float)swapChainExtent.height;             // Modifying viewport origin and height
+        viewport.width = (float)swapChainExtent.width;          // to account for Vulkan's coordinate system
+        viewport.height = -1.0 * (float)swapChainExtent.height; // having a Y-axis that points down
         viewport.minDepth = 0.0f;
         viewport.maxDepth = 1.0f;
 
