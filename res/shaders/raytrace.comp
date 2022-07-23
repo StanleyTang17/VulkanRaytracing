@@ -41,7 +41,9 @@ const Sphere spheres[2] = {
     { vec3(0.0, -100.5, -1.0), 100.0 }
 };
 const uint num_spheres = 2;
+const uint num_samples = 100;
 
+float rand(inout uint state); // generate a random float between 0.0 and 1.0
 Ray get_ray(float s, float t); // returns the direction of a ray given x and y index
 bool sphere_hit(Ray ray, Sphere sphere, float t_min, float t_max, inout HitRecord hit_record); // check if a ray hits a sphere
 bool scene_hit(Ray ray, float t_min, float t_max, inout HitRecord hit_record); // check if a ray hits an object in the scene
@@ -49,10 +51,21 @@ vec3 ray_color(Ray ray); // returns the color of a ray
 
 void main()
 {
-    Ray ray = get_ray(gl_GlobalInvocationID.x / 800.0 * 2.0, gl_GlobalInvocationID.y / 640.0 * 1.6);
-    vec3 color = ray_color(ray);
+    uint state = (gl_GlobalInvocationID.x * 1973 + gl_GlobalInvocationID.y * 9277);
+    vec3 pixel_color = vec3(0.0);
 
-	imageStore(image_data, ivec2(gl_GlobalInvocationID.xy), vec4(color, 1.0));
+    for (uint i = 0; i < num_samples; ++i) {
+        Ray ray = get_ray(
+            (gl_GlobalInvocationID.x + rand(state)) / 800.0 * 2.0,
+            (gl_GlobalInvocationID.y + rand(state)) / 640.0 * 1.6
+        );
+
+        pixel_color += ray_color(ray);
+    }
+
+    pixel_color /= num_samples;
+
+	imageStore(image_data, ivec2(gl_GlobalInvocationID.xy), vec4(pixel_color, 1.0));
 }
 
 Ray get_ray(float s, float t)
@@ -112,6 +125,15 @@ bool scene_hit(Ray ray, float t_min, float t_max, inout HitRecord hit_record)
     }
 
     return hit;
+}
+
+float rand(inout uint state)
+{
+    state ^= state << 13;
+    state ^= state >> 17;
+    state ^= state << 5;
+    
+    return (state & 0xffffff) / 16777216.0f;
 }
 
 vec3 ray_color(Ray ray)
