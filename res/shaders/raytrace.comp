@@ -53,6 +53,7 @@ Ray get_ray(float s, float t); // returns the direction of a ray given x and y i
 bool sphere_hit(Ray ray, Sphere sphere, float t_min, float t_max, inout HitRecord hit_record); // check if a ray hits a sphere
 bool scene_hit(Ray ray, float t_min, float t_max, inout HitRecord hit_record); // check if a ray hits an object in the scene
 vec3 ray_color(Ray ray, int depth); // returns the color of a ray
+void write_color(ivec2 index, vec4 color); // write color to image
 
 void main()
 {
@@ -67,9 +68,7 @@ void main()
         pixel_color += ray_color(ray, 50);
     }
 
-    pixel_color /= num_samples;
-
-	imageStore(image_data, ivec2(gl_GlobalInvocationID.xy), vec4(pixel_color, 1.0));
+    write_color(ivec2(gl_GlobalInvocationID.xy), vec4(pixel_color, 1.0));
 }
 
 Ray get_ray(float s, float t)
@@ -167,11 +166,11 @@ vec3 ray_color(Ray ray, int depth)
     float scatter_factor = 1.0;
 
     for (int i = 0; i < depth; ++i) {
-        if (scene_hit(ray, 0.00001, 100000000000.0, hit_record)) {
+        if (scene_hit(ray, 0.001, 100000000000.0, hit_record)) {
             scatter_factor *= 0.5;
 
             // generate scattered ray
-            vec3 target = hit_record.point + hit_record.normal + rand_in_unit_sphere(state);
+            vec3 target = hit_record.point + hit_record.normal + normalize(rand_in_unit_sphere(state));
             ray.direction = normalize(target - ray.origin);
             ray.origin = hit_record.point;
         } else {
@@ -182,4 +181,19 @@ vec3 ray_color(Ray ray, int depth)
     
     // exceeded depth
     return vec3(0.0);
+}
+
+void write_color(ivec2 index, vec4 color)
+{
+    float r = color.r;
+    float g = color.g;
+    float b = color.b;
+
+    float scale = 1.0 / num_samples;
+    r = sqrt(scale * r);
+    g = sqrt(scale * g);
+    b = sqrt(scale * b);
+
+    color = vec4(r, g, b, color.a);
+    imageStore(image_data, index, color);
 }
