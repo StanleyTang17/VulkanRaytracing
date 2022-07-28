@@ -71,8 +71,8 @@ public:
 
 private:
     GLFWwindow* window;
-    const uint32_t WIDTH = 800;
-    const uint32_t HEIGHT = 640;
+    const uint32_t WIDTH = 1600;
+    const uint32_t HEIGHT = 912;
 
     const std::vector<const char*> validationLayers = {
         "VK_LAYER_KHRONOS_validation"

@@ -6,16 +6,31 @@
 
 #define PI 3.1415926538
 
+// material types
+#define MAT_LAMBERTIAN  0
+#define MAT_METAL       1
+
+#define NUM_MATERIALS   4
+#define NUM_SPHERES     4
+
 struct Ray
 {
     vec3 origin;
     vec3 direction;
 };
 
+struct Material
+{
+    int type;
+    vec3 albedo;
+    float metal_fuzz;
+};
+
 struct Sphere
 {
     vec3 center;
     float radius;
+    int material_idx;
 };
 
 struct HitRecord
@@ -24,6 +39,7 @@ struct HitRecord
     vec3 normal;
     float t;
     bool front_face;
+    int material_idx;
 };
 
 layout (local_size_x = 16, local_size_y = 16) in;
@@ -34,16 +50,29 @@ layout (binding = 0) uniform UniformBufferObject {
 } ubo;
 layout (binding = 1, rgba32f) uniform image2D image_data;
 
+const Material materials[NUM_MATERIALS] = {
+    { MAT_LAMBERTIAN,   vec3(0.8, 0.8, 0.0),    0.0 }, // ground material
+    { MAT_METAL,        vec3(0.8, 0.8, 0.8),    0.3 }, // left sphere material
+    { MAT_LAMBERTIAN,   vec3(0.7, 0.3, 0.3),    0.0 }, // middle sphere material
+    { MAT_METAL,        vec3(0.8, 0.6, 0.2),    1.0 }  // right sphere material
+};
+const Sphere spheres[NUM_SPHERES] = {
+    { vec3(0.0, -100.5, 2.0),   100.0,  0 }, // ground sphere
+    { vec3(-1.0, 0.0, 2.0),     0.5,    1 }, // left sphere
+    { vec3(0.0, 0.0, 2.0),      0.5,    2 }, // middle sphere
+    { vec3(1.0, 0.0, 2.0),      0.5,    3 }  // right sphere
+};
+const uint num_samples = 300;
+const uint screen_width = 1600;
+const uint screen_height = 912;
+const float aspect_ratio = 1.0 * screen_width / screen_height;
+const float viewport_width = 2.0;
+const float viewport_height = viewport_width / aspect_ratio;
+
 const vec3 proj_origin = vec3(0.0, 0.0, 0.0);
-const vec3 proj_plane[3] = vec3[3](vec3(-1.0, -0.8, 1.0),   // top right corner
+const vec3 proj_plane[3] = vec3[3](vec3(-viewport_width / 2.0, -viewport_height / 2.0, 1.0),   // top left corner
                                    vec3(1.0, 0.0, 0.0),     // "horizontal" direction
                                    vec3(0.0, 1.0, 0.0));    // "vertical" direction
-const Sphere spheres[2] = {
-    { vec3(0.0, 0.0, 2.0), 0.5 },
-    { vec3(0.0, -100.5, -1.0), 100.0 }
-};
-const uint num_spheres = 2;
-const uint num_samples = 100;
 
 uint state = (gl_GlobalInvocationID.x * 1973 + gl_GlobalInvocationID.y * 9277);
 
@@ -52,6 +81,8 @@ vec3 rand_in_unit_sphere(inout uint state); // generate a random point in a unit
 Ray get_ray(float s, float t); // returns the direction of a ray given x and y index
 bool sphere_hit(Ray ray, Sphere sphere, float t_min, float t_max, inout HitRecord hit_record); // check if a ray hits a sphere
 bool scene_hit(Ray ray, float t_min, float t_max, inout HitRecord hit_record); // check if a ray hits an object in the scene
+bool lamb_scatter(inout Ray ray, inout vec3 attenuation, Material material); // scatter lambertian ray
+bool metal_scatter(inout Ray ray, inout vec3 attenuation, Material material); // scatter metal ray
 vec3 ray_color(Ray ray, int depth); // returns the color of a ray
 void write_color(ivec2 index, vec4 color); // write color to image
 
@@ -61,8 +92,8 @@ void main()
 
     for (uint i = 0; i < num_samples; ++i) {
         Ray ray = get_ray(
-            (gl_GlobalInvocationID.x + rand(state)) / 800.0 * 2.0,
-            (gl_GlobalInvocationID.y + rand(state)) / 640.0 * 1.6
+            (gl_GlobalInvocationID.x + rand(state)) / screen_width * viewport_width,
+            (gl_GlobalInvocationID.y + rand(state)) / screen_height * viewport_height
         );
 
         pixel_color += ray_color(ray, 50);
@@ -97,6 +128,7 @@ bool sphere_hit(Ray ray, Sphere sphere, float t_min, float t_max, inout HitRecor
 
     hit_record.t = t;
     hit_record.point = ray.origin + t * ray.direction;
+    hit_record.material_idx = sphere.material_idx;
 
     vec3 outward_normal = (sphere.center - hit_record.point) / sphere.radius;
 
@@ -119,7 +151,7 @@ bool scene_hit(Ray ray, float t_min, float t_max, inout HitRecord hit_record)
     bool hit = false;
     float closest_t = t_max;
 
-    for (uint i = 0; i < num_spheres; ++i) {
+    for (uint i = 0; i < NUM_SPHERES; ++i) {
         if (sphere_hit(ray, spheres[i], t_min, closest_t, tmp_hit_record)) {
             hit = true;
             closest_t = tmp_hit_record.t;
@@ -160,27 +192,74 @@ vec3 rand_in_unit_sphere(inout uint state)
     return vec3(x, y, z);
 }
 
+bool lamb_scatter(inout Ray ray, HitRecord hit_record, inout vec3 color, Material material)
+{
+    vec3 target = hit_record.point + hit_record.normal + normalize(rand_in_unit_sphere(state));
+    vec3 scattered_direction = normalize(target - ray.origin);
+
+    // check if the direction is near zero
+    const float s = 1e-8;
+    if (scattered_direction.x < s && scattered_direction.y < s && scattered_direction.z < s) {
+        scattered_direction = hit_record.normal;
+    }
+
+    ray.direction = scattered_direction;
+    ray.origin = hit_record.point;
+    color *= material.albedo;
+
+    return true;
+}
+
+bool metal_scatter(inout Ray ray, HitRecord hit_record, inout vec3 color, Material material)
+{
+    vec3 reflection = ray.direction - 2 * dot(ray.direction, hit_record.normal) * hit_record.normal;
+
+    if (dot(reflection, hit_record.normal) > 0) {
+        ray.direction = reflection + material.metal_fuzz * rand_in_unit_sphere(state);
+        ray.origin = hit_record.point;
+        color *= material.albedo;
+
+        return true;
+    } else {
+        color = vec3(0.0);
+
+        return false;
+    }
+}
+
 vec3 ray_color(Ray ray, int depth)
 {
+    int i;
     HitRecord hit_record;
-    float scatter_factor = 1.0;
+    vec3 color = vec3(1.0);
 
-    for (int i = 0; i < depth; ++i) {
+    for (i = 0; i < depth; ++i) {
         if (scene_hit(ray, 0.001, 100000000000.0, hit_record)) {
-            scatter_factor *= 0.5;
+            Material material = materials[hit_record.material_idx];
+            bool scattered = false;
 
-            // generate scattered ray
-            vec3 target = hit_record.point + hit_record.normal + normalize(rand_in_unit_sphere(state));
-            ray.direction = normalize(target - ray.origin);
-            ray.origin = hit_record.point;
+            if (material.type == MAT_LAMBERTIAN) {
+                scattered = lamb_scatter(ray, hit_record, color, material);
+            } else if (material.type == MAT_METAL) {
+                scattered = metal_scatter(ray, hit_record, color, material);
+            }
+
+            if (!scattered)
+                break;
         } else {
             float t = 0.5 * (ray.direction.y + 1.0);
-            return scatter_factor * ((1.0 - t) * vec3(1.0, 1.0, 1.0) + t * vec3(0.5, 0.7, 1.0));
+            vec3 default_color = (1.0 - t) * vec3(1.0, 1.0, 1.0) + t * vec3(0.5, 0.7, 1.0);
+            color *= default_color;
+            break;
         }
     }
     
     // exceeded depth
-    return vec3(0.0);
+    if (i < depth) {
+        return color;
+    } else {
+        return vec3(0.0);
+    }
 }
 
 void write_color(ivec2 index, vec4 color)
