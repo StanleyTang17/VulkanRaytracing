@@ -9,6 +9,7 @@
 // material types
 #define MAT_LAMBERTIAN  0
 #define MAT_METAL       1
+#define MAT_DIELECTRIC  2
 
 #define NUM_MATERIALS   4
 #define NUM_SPHERES     4
@@ -24,6 +25,7 @@ struct Material
     int type;
     vec3 albedo;
     float metal_fuzz;
+    float ref_idx;
 };
 
 struct Sphere
@@ -51,10 +53,10 @@ layout (binding = 0) uniform UniformBufferObject {
 layout (binding = 1, rgba32f) uniform image2D image_data;
 
 const Material materials[NUM_MATERIALS] = {
-    { MAT_LAMBERTIAN,   vec3(0.8, 0.8, 0.0),    0.0 }, // ground material
-    { MAT_METAL,        vec3(0.8, 0.8, 0.8),    0.3 }, // left sphere material
-    { MAT_LAMBERTIAN,   vec3(0.7, 0.3, 0.3),    0.0 }, // middle sphere material
-    { MAT_METAL,        vec3(0.8, 0.6, 0.2),    1.0 }  // right sphere material
+    { MAT_LAMBERTIAN,   vec3(0.8, 0.8, 0.0),    0.0,    0.0 }, // ground material
+    { MAT_DIELECTRIC,   vec3(0.8, 0.8, 0.8),    0.0,    1.5 }, // left sphere material
+    { MAT_LAMBERTIAN,   vec3(0.1, 0.2, 0.5),    0.0,    0.0 }, // middle sphere material
+    { MAT_METAL,        vec3(0.8, 0.6, 0.2),    0.0,    0.0 }  // right sphere material
 };
 const Sphere spheres[NUM_SPHERES] = {
     { vec3(0.0, -100.5, 2.0),   100.0,  0 }, // ground sphere
@@ -82,8 +84,11 @@ vec3 rand_unit_vector(inout uint state); // generate a random unit vector
 Ray get_ray(float s, float t); // returns the direction of a ray given x and y index
 bool sphere_hit(Ray ray, Sphere sphere, float t_min, float t_max, inout HitRecord hit_record); // check if a ray hits a sphere
 bool scene_hit(Ray ray, float t_min, float t_max, inout HitRecord hit_record); // check if a ray hits an object in the scene
-bool lamb_scatter(inout Ray ray, inout vec3 attenuation, Material material); // scatter lambertian ray
-bool metal_scatter(inout Ray ray, inout vec3 attenuation, Material material); // scatter metal ray
+bool near_zero(vec3 v); // check if a vector is near zero
+float reflectance(float cosine, float ref_idx); // calculate reflectance
+bool lamb_scatter(inout Ray ray, HitRecord hit_record, inout vec3 color, Material material); // scatter lambertian ray
+bool metal_scatter(inout Ray ray, HitRecord hit_record, inout vec3 color, Material material); // scatter metal ray
+bool dielectric_scatter(inout Ray ray, HitRecord hit_record, Material material);
 vec3 ray_color(Ray ray, int depth); // returns the color of a ray
 void write_color(ivec2 index, vec4 color); // write color to image
 
@@ -131,16 +136,16 @@ bool sphere_hit(Ray ray, Sphere sphere, float t_min, float t_max, inout HitRecor
     hit_record.point = ray.origin + t * ray.direction;
     hit_record.material_idx = sphere.material_idx;
 
-    vec3 outward_normal = (sphere.center - hit_record.point) / sphere.radius;
+    vec3 outward_normal = (hit_record.point - sphere.center) / sphere.radius;
 
-    if (dot(ray.direction, outward_normal) < 0.0) {
-        // ray is outside the sphere
-        hit_record.normal = outward_normal;
-        hit_record.front_face = true;
-    } else {
+    if (dot(ray.direction, outward_normal) > 0.0) {
         // ray is inside the sphere
         hit_record.normal = -outward_normal;
         hit_record.front_face = false;
+    } else {
+        // ray is outside the sphere
+        hit_record.normal = outward_normal;
+        hit_record.front_face = true;
     }
     
     return true;
@@ -198,9 +203,28 @@ vec3 rand_unit_vector(inout uint state)
     return normalize(rand_in_unit_sphere(state));
 }
 
+bool near_zero(vec3 v)
+{
+    const float s = 0.000000001;
+    if (abs(v.x) < s && abs(v.y) < s && abs(v.z) < s)
+        return true;
+    return false;
+}
+
+float reflectance(float cosine, float ref_idx)
+{
+    // Shlick's approximation
+    float r0 = (1 - ref_idx) / (1 + ref_idx);
+    r0 = r0 * r0;
+    return r0 + (1 - r0) * pow((1 - cosine), 5);
+}
+
 bool lamb_scatter(inout Ray ray, HitRecord hit_record, inout vec3 color, Material material)
 {
     vec3 scatter_direction = normalize(hit_record.normal + rand_unit_vector(state));
+
+    if (near_zero(scatter_direction))
+        scatter_direction = hit_record.normal;
 
     ray.direction = scatter_direction;
     ray.origin = hit_record.point;
@@ -226,6 +250,26 @@ bool metal_scatter(inout Ray ray, HitRecord hit_record, inout vec3 color, Materi
     }
 }
 
+bool dielectric_scatter(inout Ray ray, HitRecord hit_record, Material material)
+{
+    float refract_ratio = hit_record.front_face ? (1.0 / material.ref_idx) : material.ref_idx;
+
+    float cos_theta = min(dot(-ray.direction, hit_record.normal), 1.0);
+    float sin_theta = sqrt(1.0 - cos_theta * cos_theta);
+
+    if ((refract_ratio * sin_theta) > 1.0 || reflectance(cos_theta, material.ref_idx) > rand(state)) {
+        // cannot refract
+        ray.direction = normalize(reflect(ray.direction, hit_record.normal));
+    } else {
+        // can refract
+        ray.direction = normalize(refract(ray.direction, hit_record.normal, refract_ratio));
+    }
+    
+    ray.origin = hit_record.point;
+
+    return true;
+}
+
 vec3 ray_color(Ray ray, int depth)
 {
     int i;
@@ -241,6 +285,8 @@ vec3 ray_color(Ray ray, int depth)
                 scattered = lamb_scatter(ray, hit_record, color, material);
             } else if (material.type == MAT_METAL) {
                 scattered = metal_scatter(ray, hit_record, color, material);
+            } else if (material.type == MAT_DIELECTRIC) {
+                scattered = dielectric_scatter(ray, hit_record, material);
             }
 
             if (!scattered)
