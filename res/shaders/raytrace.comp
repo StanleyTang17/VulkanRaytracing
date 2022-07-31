@@ -1,8 +1,8 @@
 #version 450 core
 
-// x-axis: left/right
-// y-axis: up/down
-// z-axis: front/back
+// x-axis: +right/-left
+// y-axis: +up/-down
+// z-axis: +back/-front
 
 #define PI 3.1415926538
 
@@ -44,6 +44,13 @@ struct HitRecord
     int material_idx;
 };
 
+struct Camera
+{
+    vec3 look_from;
+    vec3 look_at;
+    vec3 world_up;
+};
+
 layout (local_size_x = 16, local_size_y = 16) in;
 layout (binding = 0) uniform UniformBufferObject {
     mat4 model;
@@ -59,10 +66,10 @@ const Material materials[NUM_MATERIALS] = {
     { MAT_METAL,        vec3(0.8, 0.6, 0.2),    0.0,    0.0 }  // right sphere material
 };
 const Sphere spheres[NUM_SPHERES] = {
-    { vec3(0.0, -100.5, 2.0),   100.0,  0 }, // ground sphere
-    { vec3(-1.0, 0.0, 2.0),     0.5,    1 }, // left sphere
-    { vec3(0.0, 0.0, 2.0),      0.5,    2 }, // middle sphere
-    { vec3(1.0, 0.0, 2.0),      0.5,    3 }  // right sphere
+    { vec3(0.0, -100.5, -2.0),   100.0,  0 }, // ground sphere
+    { vec3(-1.0, 0.0, -2.0),     0.5,    1 }, // left sphere
+    { vec3(0.0, 0.0, -2.0),      0.5,    2 }, // middle sphere
+    { vec3(1.0, 0.0, -2.0),      0.5,    3 }  // right sphere
 };
 const uint num_samples = 300;
 const uint screen_width = 1600;
@@ -71,10 +78,8 @@ const float aspect_ratio = 1.0 * screen_width / screen_height;
 const float viewport_width = 2.0;
 const float viewport_height = viewport_width / aspect_ratio;
 
-const vec3 proj_origin = vec3(0.0, 0.0, 0.0);
-const vec3 proj_plane[3] = vec3[3](vec3(-viewport_width / 2.0, -viewport_height / 2.0, 1.0),   // top left corner
-                                   vec3(1.0, 0.0, 0.0),     // "horizontal" direction
-                                   vec3(0.0, 1.0, 0.0));    // "vertical" direction
+vec3 proj_origin;
+vec3 proj_plane[3];
 
 uint state = (gl_GlobalInvocationID.x * 1973 + gl_GlobalInvocationID.y * 9277);
 
@@ -88,12 +93,27 @@ bool near_zero(vec3 v); // check if a vector is near zero
 float reflectance(float cosine, float ref_idx); // calculate reflectance
 bool lamb_scatter(inout Ray ray, HitRecord hit_record, inout vec3 color, Material material); // scatter lambertian ray
 bool metal_scatter(inout Ray ray, HitRecord hit_record, inout vec3 color, Material material); // scatter metal ray
-bool dielectric_scatter(inout Ray ray, HitRecord hit_record, Material material);
+bool dielectric_scatter(inout Ray ray, HitRecord hit_record, Material material); // scatter dielectric ray
 vec3 ray_color(Ray ray, int depth); // returns the color of a ray
 void write_color(ivec2 index, vec4 color); // write color to image
 
 void main()
 {
+    Camera camera = {
+        vec3(0.0, 0.0, 0.0),    // look from
+        vec3(0.0, 0.0, -2.0),    // look at
+        vec3(0.0, 1.0, 0.0)     // world up
+    };
+
+    vec3 w = normalize(camera.look_at - camera.look_from);
+    vec3 u = normalize(cross(w, camera.world_up));
+    vec3 v = normalize(cross(u, w));
+
+    proj_origin = camera.look_from;
+    proj_plane[1] = u; // right direction
+    proj_plane[2] = v; // up direction
+    proj_plane[0] = proj_origin - viewport_width / 2.0 * u - viewport_height / 2.0 * v + w; // lower left corner
+
     vec3 pixel_color = vec3(0.0);
 
     for (uint i = 0; i < num_samples; ++i) {
