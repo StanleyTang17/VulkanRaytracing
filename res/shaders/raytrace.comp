@@ -49,6 +49,7 @@ struct Camera
     vec3 look_from;
     vec3 look_at;
     vec3 world_up;
+    float vfov;
 };
 
 layout (local_size_x = 16, local_size_y = 16) in;
@@ -75,9 +76,9 @@ const uint num_samples = 300;
 const uint screen_width = 1600;
 const uint screen_height = 912;
 const float aspect_ratio = 1.0 * screen_width / screen_height;
-const float viewport_width = 2.0;
-const float viewport_height = viewport_width / aspect_ratio;
 
+float viewport_width;
+float viewport_height;
 vec3 proj_origin;
 vec3 proj_plane[3];
 
@@ -100,10 +101,14 @@ void write_color(ivec2 index, vec4 color); // write color to image
 void main()
 {
     Camera camera = {
-        vec3(0.0, 0.0, 0.0),    // look from
-        vec3(0.0, 0.0, -2.0),    // look at
-        vec3(0.0, 1.0, 0.0)     // world up
+        vec3(-2.0, 2.0, 2.0),   // look from
+        vec3(0.0, 0.0, -2.0),   // look at
+        vec3(0.0, 1.0, 0.0),    // world up
+        90.0                    // vfov
     };
+
+    viewport_height = 2.0 * tan(radians(camera.vfov) * 0.5);
+    viewport_width = aspect_ratio * viewport_height;
 
     vec3 w = normalize(camera.look_at - camera.look_from);
     vec3 u = normalize(cross(w, camera.world_up));
