@@ -26,9 +26,10 @@ struct QueueFamilyIndices {
 };
 
 struct UniformBufferObject {
-    glm::mat4 model;
-    glm::mat4 view;
-    glm::mat4 proj;
+    glm::vec4 camera_position_vfov;
+    glm::vec4 camera_front;
+    glm::vec4 camera_right;
+    glm::vec4 camera_up;
 };
 
 QueueFamilyIndices findQueueFamilies(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface);

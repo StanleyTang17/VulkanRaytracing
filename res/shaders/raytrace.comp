@@ -44,19 +44,12 @@ struct HitRecord
     int material_idx;
 };
 
-struct Camera
-{
-    vec3 look_from;
-    vec3 look_at;
-    vec3 world_up;
-    float vfov;
-};
-
 layout (local_size_x = 16, local_size_y = 16) in;
-layout (binding = 0) uniform UniformBufferObject {
-    mat4 model;
-    mat4 view;
-    mat4 proj;
+layout (binding = 0, std140) uniform UniformBufferObject {
+    vec4 camera_position_vfov;
+    vec4 camera_front;
+    vec4 camera_right;
+    vec4 camera_up;
 } ubo;
 layout (binding = 1, rgba32f) uniform image2D image_data;
 
@@ -100,21 +93,19 @@ void write_color(ivec2 index, vec4 color); // write color to image
 
 void main()
 {
-    Camera camera = {
-        vec3(-2.0, 2.0, 2.0),   // look from
-        vec3(0.0, 0.0, -2.0),   // look at
-        vec3(0.0, 1.0, 0.0),    // world up
-        90.0                    // vfov
-    };
+    // extract info from unifrom buffer object
+    vec3 w = ubo.camera_front.xyz;
+    vec3 u = ubo.camera_right.xyz;
+    vec3 v = ubo.camera_up.xyz;
+    vec3 cam_pos = ubo.camera_position_vfov.xyz;
+    float vfov = ubo.camera_position_vfov.w;
 
-    viewport_height = 2.0 * tan(radians(camera.vfov) * 0.5);
+    // viewport setup
+    viewport_height = 2.0 * tan(radians(vfov) * 0.5);
     viewport_width = aspect_ratio * viewport_height;
 
-    vec3 w = normalize(camera.look_at - camera.look_from);
-    vec3 u = normalize(cross(w, camera.world_up));
-    vec3 v = normalize(cross(u, w));
-
-    proj_origin = camera.look_from;
+    // projection setup
+    proj_origin = cam_pos;
     proj_plane[1] = u; // right direction
     proj_plane[2] = v; // up direction
     proj_plane[0] = proj_origin - viewport_width / 2.0 * u - viewport_height / 2.0 * v + w; // lower left corner

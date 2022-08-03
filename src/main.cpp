@@ -57,7 +57,7 @@ struct Vertex {
     }
 };
 
-class HelloTriangleApplication {
+class RayTracingApplication {
 public:
     void run() {
         initWindow();
@@ -541,7 +541,7 @@ private:
         uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         uboLayoutBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
         uboLayoutBinding.pImmutableSamplers = nullptr;
-
+        
         VkDescriptorSetLayoutBinding outputImageLayoutBinding{};
         outputImageLayoutBinding.binding = 1;
         outputImageLayoutBinding.descriptorCount = 1;
@@ -1240,7 +1240,7 @@ private:
     }
 
     static void framebufferResizeCallback(GLFWwindow* window, int width, int height) {
-        HelloTriangleApplication* app = static_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window));
+        RayTracingApplication* app = static_cast<RayTracingApplication*>(glfwGetWindowUserPointer(window));
         app->framebufferResized = true;
     }
 
@@ -1384,11 +1384,19 @@ private:
         auto currentTime = std::chrono::high_resolution_clock::now();
         float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
 
+        float vfov = 90.0f;
+        glm::vec3 cam_pos(0.0f);
+        glm::vec3 look_at(0.0f, 0.0f, -1.0f);
+        glm::vec3 world_up(0.0f, 1.0f, 0.0f);
+        glm::vec3 w = glm::normalize(look_at - cam_pos);
+        glm::vec3 u = glm::normalize(glm::cross(w, world_up));
+        glm::vec3 v = glm::normalize(glm::cross(u, w));
+
         UniformBufferObject ubo{};
-        ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-        ubo.view = glm::lookAt(glm::vec3(2.0f), glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-        ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / static_cast<float>(swapChainExtent.height), 0.1f, 10.0f);
-        ubo.proj[1][1] *= -1;
+        ubo.camera_position_vfov = glm::vec4(cam_pos, vfov);
+        ubo.camera_front = glm::vec4(w, 0.0f);
+        ubo.camera_right = glm::vec4(u, 0.0f);
+        ubo.camera_up = glm::vec4(v, 0.0f);
 
         void* data;
         vkMapMemory(device, uniformBuffersMemories[currentFrame], 0, sizeof(ubo), 0, &data);
@@ -1398,7 +1406,7 @@ private:
 };
 
 int main() {
-    HelloTriangleApplication app;
+    RayTracingApplication app;
 
     try {
         app.run();
