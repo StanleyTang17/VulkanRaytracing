@@ -1,8 +1,8 @@
 #define GLFW_INCLUDE_VULKAN
-#include <GLFW/glfw3.h>
 
 #include "util.h"
 #include "vkutil.h"
+#include "camera.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -90,8 +90,15 @@ private:
 
     const int MAX_FRAMES_IN_FLIGHT = 2;
     uint32_t currentFrame = 0;
+    uint32_t numSamples = 4;
     bool framebufferResized = false;
     QueueFamilyIndices queueFamilies;
+    Camera camera;
+    double lastMouseX = 0.0;
+    double lastMouseY = 0.0;
+    bool firstMouse = true;
+    float dt = 0.0f;
+    float lastTime = 0.0f;
 
     // Vulkan global
     VkInstance instance;
@@ -147,7 +154,7 @@ private:
     VkCommandPool computeCommandPool;
     VkQueue computeQueue;
 
-
+    
     void initWindow() {
         glfwInit();
 
@@ -155,8 +162,12 @@ private:
         glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
         window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan Raytracing Project", nullptr, nullptr);
+
+        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+
         glfwSetWindowUserPointer(window, this);
         glfwSetWindowSizeCallback(window, framebufferResizeCallback);
+        glfwSetKeyCallback(window, keyCallback);
     }
 
     void initVulkan() {
@@ -186,6 +197,7 @@ private:
     void mainLoop() {
         while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
+            update();
             drawFrame();
         }
 
@@ -1102,6 +1114,16 @@ private:
         }
     }
 
+    void update() {
+        float curTime = static_cast<float>(glfwGetTime());
+        dt = curTime - lastTime;
+        lastTime = curTime;
+
+        updateMouseInput();
+        camera.move(dt);
+        camera.updateVectors();
+    }
+
     void drawFrame() {
         // Wait for last frame
         vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
@@ -1244,6 +1266,16 @@ private:
         app->framebufferResized = true;
     }
 
+    static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+        RayTracingApplication* app = static_cast<RayTracingApplication*>(glfwGetWindowUserPointer(window));
+
+        if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
+            glfwSetWindowShouldClose(window, true);
+        }
+
+        app->camera.handleKeyInput(window, key, action);
+    }
+
     VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger) {
         auto func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
         if (func != nullptr) {
@@ -1384,24 +1416,36 @@ private:
         auto currentTime = std::chrono::high_resolution_clock::now();
         float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
 
-        float vfov = 90.0f;
-        glm::vec3 cam_pos(0.0f);
-        glm::vec3 look_at(0.0f, 0.0f, -1.0f);
-        glm::vec3 world_up(0.0f, 1.0f, 0.0f);
-        glm::vec3 w = glm::normalize(look_at - cam_pos);
-        glm::vec3 u = glm::normalize(glm::cross(w, world_up));
-        glm::vec3 v = glm::normalize(glm::cross(u, w));
-
         UniformBufferObject ubo{};
-        ubo.camera_position_vfov = glm::vec4(cam_pos, vfov);
-        ubo.camera_front = glm::vec4(w, 0.0f);
-        ubo.camera_right = glm::vec4(u, 0.0f);
-        ubo.camera_up = glm::vec4(v, 0.0f);
+        ubo.view_info = glm::vec4(WIDTH, HEIGHT, numSamples, camera.getVFOV());
+        ubo.camera_position = glm::vec4(camera.getPosition(), 0.0f);
+        ubo.camera_front = glm::vec4(camera.getFront(), 0.0f);
+        ubo.camera_right = glm::vec4(camera.getRight(), 0.0f);
+        ubo.camera_up = glm::vec4(camera.getUp(), 0.0f);
 
         void* data;
         vkMapMemory(device, uniformBuffersMemories[currentFrame], 0, sizeof(ubo), 0, &data);
         memcpy(data, &ubo, sizeof(ubo));
         vkUnmapMemory(device, uniformBuffersMemories[currentFrame]);
+    }
+
+    void updateMouseInput() {
+        double mouseX, mouseY;
+        glfwGetCursorPos(window, &mouseX, &mouseY);
+
+        if (firstMouse) {
+            lastMouseX = mouseX;
+            lastMouseY = mouseY;
+            firstMouse = false;
+        }
+
+        double mouseOffsetX = mouseX - lastMouseX;
+        double mouseOffsetY = lastMouseY - mouseY;
+
+        camera.handleMouseInput(dt, mouseOffsetX, mouseOffsetY);
+
+        lastMouseX = mouseX;
+        lastMouseY = mouseY;
     }
 };
 

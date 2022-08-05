@@ -46,7 +46,8 @@ struct HitRecord
 
 layout (local_size_x = 16, local_size_y = 16) in;
 layout (binding = 0, std140) uniform UniformBufferObject {
-    vec4 camera_position_vfov;
+    vec4 view_info; // screen width, screen height, number of samples, vertical FOV
+    vec4 camera_position;
     vec4 camera_front;
     vec4 camera_right;
     vec4 camera_up;
@@ -65,13 +66,8 @@ const Sphere spheres[NUM_SPHERES] = {
     { vec3(0.0, 0.0, -2.0),      0.5,    2 }, // middle sphere
     { vec3(1.0, 0.0, -2.0),      0.5,    3 }  // right sphere
 };
-const uint num_samples = 300;
-const uint screen_width = 1600;
-const uint screen_height = 912;
-const float aspect_ratio = 1.0 * screen_width / screen_height;
 
-float viewport_width;
-float viewport_height;
+uint num_samples;
 vec3 proj_origin;
 vec3 proj_plane[3];
 
@@ -97,12 +93,16 @@ void main()
     vec3 w = ubo.camera_front.xyz;
     vec3 u = ubo.camera_right.xyz;
     vec3 v = ubo.camera_up.xyz;
-    vec3 cam_pos = ubo.camera_position_vfov.xyz;
-    float vfov = ubo.camera_position_vfov.w;
+    vec3 cam_pos = ubo.camera_position.xyz;
+    float screen_width = ubo.view_info[0];
+    float screen_height = ubo.view_info[1];
+    num_samples = uint(ubo.view_info[2]);
+    float vfov = ubo.view_info[3];
 
     // viewport setup
-    viewport_height = 2.0 * tan(radians(vfov) * 0.5);
-    viewport_width = aspect_ratio * viewport_height;
+    float aspect_ratio = screen_width / screen_height;
+    float viewport_height = 2.0 * tan(radians(vfov) * 0.5);
+    float viewport_width = aspect_ratio * viewport_height;
 
     // projection setup
     proj_origin = cam_pos;

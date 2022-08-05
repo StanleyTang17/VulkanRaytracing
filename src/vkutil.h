@@ -26,7 +26,8 @@ struct QueueFamilyIndices {
 };
 
 struct UniformBufferObject {
-    glm::vec4 camera_position_vfov;
+    glm::vec4 view_info;
+    glm::vec4 camera_position;
     glm::vec4 camera_front;
     glm::vec4 camera_right;
     glm::vec4 camera_up;
