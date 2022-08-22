@@ -71,8 +71,12 @@ namespace VkInit {
 }
 
 namespace VkCmd {
-    void transitionImageLayout(VkCommandBuffer commandBuffer, VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
+    void transitionImageLayout(VkCommandBuffer commandBuffer, VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout,
+        uint32_t srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        uint32_t dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED
+    );
     void copyBufferToImage(VkCommandBuffer commandBuffer, VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
+    void copyImageToBuffer(VkCommandBuffer commandBuffer, VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
 }
 
 #endif

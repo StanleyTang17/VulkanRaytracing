@@ -5,6 +5,7 @@
 #include "camera.h"
 
 #include <glm/gtc/matrix_transform.hpp>
+#include <OpenImageDenoise/oidn.hpp>
 
 #include <iostream>
 #include <cstdint>
@@ -62,6 +63,7 @@ public:
     void run() {
         initWindow();
         initVulkan();
+        initOIDN();
 
         std::cout << "app initialized!" << std::endl;
 
@@ -124,6 +126,10 @@ private:
     std::vector<VkDeviceMemory> outputImageMemories;
     std::vector<VkImageView> outputImageViews;
     VkSampler outputImageSampler;
+    std::vector<VkBuffer> denoiseBuffers;
+    std::vector<VkDeviceMemory> denoiseBufferMemories;
+    std::vector<VkCommandBuffer> copyCommandBuffers;
+    size_t outputImageSize;
 
     // uniform buffer
     std::vector<VkBuffer> uniformBuffers;
@@ -132,8 +138,10 @@ private:
     // sync objects
     std::vector<VkSemaphore> imageAvailableSemaphores;
     std::vector<VkSemaphore> raytraceFinishedSemaphores;
+    std::vector<VkSemaphore> copySemaphores;
     std::vector<VkSemaphore> renderFinishedSemaphores;
     std::vector<VkFence> inFlightFences;
+    std::vector<VkFence> copyFences;
 
     // graphics pipeline
     VkRenderPass renderPass;
@@ -154,7 +162,13 @@ private:
     VkCommandPool computeCommandPool;
     VkQueue computeQueue;
 
-    
+    // OIDN
+    oidn::DeviceRef oidnDevice;
+    oidn::FilterRef oidnFilter;
+    bool useDenoising = false;
+    void* colorPtr;
+    void* outputPtr;
+
     void initWindow() {
         glfwInit();
 
@@ -178,6 +192,7 @@ private:
         createLogicalDevice();
         createSwapChain();
         outputImageExtent = swapChainExtent;
+        outputImageSize = outputImageExtent.width * outputImageExtent.height * 4 * sizeof(float);
         createImageViews();
         createRenderPass();
         createDescriptorSetLayouts();
@@ -192,6 +207,13 @@ private:
         createDescriptorSets();
         createCommandBuffers();
         createSyncObjects();
+    }
+
+    void initOIDN() {
+        oidnDevice = oidn::newDevice();
+        oidnDevice.commit();
+
+        oidnFilter = oidnDevice.newFilter("RT"); // generic ray tracing filter
     }
 
     void mainLoop() {
@@ -222,14 +244,18 @@ private:
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
             vkDestroySemaphore(device, imageAvailableSemaphores[i], nullptr);
             vkDestroySemaphore(device, raytraceFinishedSemaphores[i], nullptr);
+            vkDestroySemaphore(device, copySemaphores[i], nullptr);
             vkDestroySemaphore(device, renderFinishedSemaphores[i], nullptr);
             vkDestroyFence(device, inFlightFences[i], nullptr);
+            vkDestroyFence(device, copyFences[i], nullptr);
             vkDestroyBuffer(device, uniformBuffers[i], nullptr);
             vkFreeMemory(device, uniformBuffersMemories[i], nullptr);
 
             vkDestroyImageView(device, outputImageViews[i], nullptr);
             vkDestroyImage(device, outputImages[i], nullptr);
             vkFreeMemory(device, outputImageMemories[i], nullptr);
+            vkDestroyBuffer(device, denoiseBuffers[i], nullptr);
+            vkFreeMemory(device, denoiseBufferMemories[i], nullptr);
         }
 
         vkDestroySampler(device, outputImageSampler, nullptr);
@@ -801,6 +827,8 @@ private:
         outputImages.resize(MAX_FRAMES_IN_FLIGHT);
         outputImageViews.resize(MAX_FRAMES_IN_FLIGHT);
         outputImageMemories.resize(MAX_FRAMES_IN_FLIGHT);
+        denoiseBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+        denoiseBufferMemories.resize(MAX_FRAMES_IN_FLIGHT);
 
         for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
             VkInit::Image2D(
@@ -808,9 +836,9 @@ private:
                 device,
                 swapChainExtent.width,
                 swapChainExtent.height,
-                VK_FORMAT_R8G8B8A8_UNORM,
+                VK_FORMAT_R32G32B32A32_SFLOAT,
                 VK_IMAGE_TILING_OPTIMAL,
-                VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                 &outputImages[i],
                 &outputImageMemories[i]
@@ -819,13 +847,25 @@ private:
             VkInit::ImageView2D(
                 device,
                 outputImages[i],
-                VK_FORMAT_R8G8B8A8_UNORM,
+                VK_FORMAT_R32G32B32A32_SFLOAT,
                 VK_IMAGE_ASPECT_COLOR_BIT,
                 &outputImageViews[i]
             );
 
+            VkMemoryRequirements memReq{};
+            vkGetImageMemoryRequirements(device, outputImages[i], &memReq);
+            VkInit::Buffer(
+                physicalDevice,
+                device,
+                memReq.size,
+                VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+                &denoiseBuffers[i],
+                &denoiseBufferMemories[i]
+            );
+            
             VkCommandBuffer commandBuffer = startSingleTimeCommand(device, graphicsCommandPool);
-            VkCmd::transitionImageLayout(commandBuffer, outputImages[i], VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+            VkCmd::transitionImageLayout(commandBuffer, outputImages[i], VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             endSingleTimeCommand(device, graphicsCommandPool, graphicsQueue, commandBuffer);
         }
     }
@@ -927,7 +967,7 @@ private:
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             // graphics
             VkDescriptorImageInfo readImageInfo{};
-            readImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+            readImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             readImageInfo.imageView = outputImageViews[i];
             readImageInfo.sampler = outputImageSampler;
 
@@ -985,6 +1025,7 @@ private:
     void createCommandBuffers() {
         graphicsCommandBuffers.resize(MAX_FRAMES_IN_FLIGHT);
         computeCommandBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+        copyCommandBuffers.resize(MAX_FRAMES_IN_FLIGHT);
 
         VkInit::CommandBuffers(
             device,
@@ -993,13 +1034,21 @@ private:
             static_cast<uint32_t>(graphicsCommandBuffers.size()),
             graphicsCommandBuffers.data()
         );
-
+        
         VkInit::CommandBuffers(
             device,
             computeCommandPool,
             VK_COMMAND_BUFFER_LEVEL_PRIMARY,
             static_cast<uint32_t>(computeCommandBuffers.size()),
             computeCommandBuffers.data()
+        );
+
+        VkInit::CommandBuffers(
+            device,
+            graphicsCommandPool,
+            VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+            static_cast<uint32_t>(copyCommandBuffers.size()),
+            copyCommandBuffers.data()
         );
     }
 
@@ -1014,26 +1063,14 @@ private:
             throw std::runtime_error("failed to begin recording command buffer!");
         }
 
-        // Memory barrier (make sure the compute shader writes are finished before sampling)
-        VkImageMemoryBarrier barrier{};
-        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-        barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        barrier.srcQueueFamilyIndex = queueFamilies.computeFamily.value();
-        barrier.dstQueueFamilyIndex = queueFamilies.graphicsFamily.value();
-        barrier.image = outputImages[currentFrame];
-        barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-
-        vkCmdPipelineBarrier(
+        VkCmd::transitionImageLayout(
             commandBuffer,
-            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-            0,
-            0, nullptr,
-            0, nullptr,
-            1, &barrier
+            outputImages[currentFrame],
+            VK_FORMAT_R32G32B32A32_SFLOAT,
+            useDenoising ? VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL : VK_IMAGE_LAYOUT_GENERAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            queueFamilies.graphicsFamily.value(),
+            queueFamilies.graphicsFamily.value()
         );
 
         // Begin render pass
@@ -1078,6 +1115,16 @@ private:
             throw std::runtime_error("failed to begin recording command buffer!");
         }
 
+        VkCmd::transitionImageLayout(
+            commandBuffer,
+            outputImages[currentFrame],
+            VK_FORMAT_R32G32B32A32_SFLOAT,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_IMAGE_LAYOUT_GENERAL,
+            queueFamilies.graphicsFamily.value(),
+            queueFamilies.computeFamily.value()
+        );
+
         // Raytrace
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
 
@@ -1094,21 +1141,28 @@ private:
     void createSyncObjects() {
         imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
         raytraceFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+        copySemaphores.resize(MAX_FRAMES_IN_FLIGHT);
         renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
         inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
+        copyFences.resize(MAX_FRAMES_IN_FLIGHT);
 
         VkSemaphoreCreateInfo semaphoreInfo{};
         semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
         
+        VkFenceCreateInfo signaledFenceInfo{};
+        signaledFenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        signaledFenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
         VkFenceCreateInfo fenceInfo{};
         fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
         
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
             if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailableSemaphores[i]) != VK_SUCCESS   ||
                 vkCreateSemaphore(device, &semaphoreInfo, nullptr, &raytraceFinishedSemaphores[i]) != VK_SUCCESS ||
+                vkCreateSemaphore(device, &semaphoreInfo, nullptr, &copySemaphores[i]) != VK_SUCCESS ||
                 vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinishedSemaphores[i]) != VK_SUCCESS   ||
-                vkCreateFence(device, &fenceInfo, nullptr, &inFlightFences[i]) != VK_SUCCESS) {
+                vkCreateFence(device, &signaledFenceInfo, nullptr, &inFlightFences[i]) != VK_SUCCESS ||
+                vkCreateFence(device, &fenceInfo, nullptr, &copyFences[i]) != VK_SUCCESS) {
                 throw std::runtime_error("failed to create sync objects!");
             }
         }
@@ -1167,17 +1221,109 @@ private:
             throw std::runtime_error("failed to submit raytrace command buffer!");
         }
 
+        if (useDenoising) {
+            // Copy output image to denoise buffer
+            VkCommandBufferBeginInfo beginInfo{};
+            beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+
+            vkResetCommandBuffer(copyCommandBuffers[currentFrame], 0);
+            vkBeginCommandBuffer(copyCommandBuffers[currentFrame], &beginInfo);
+            VkCmd::transitionImageLayout(
+                copyCommandBuffers[currentFrame],
+                outputImages[currentFrame],
+                VK_FORMAT_R32G32B32A32_SFLOAT,
+                VK_IMAGE_LAYOUT_GENERAL,
+                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                queueFamilies.computeFamily.value(),
+                queueFamilies.graphicsFamily.value()
+            );
+            VkCmd::copyImageToBuffer(copyCommandBuffers[currentFrame], denoiseBuffers[currentFrame], outputImages[currentFrame], outputImageExtent.width, outputImageExtent.height);
+            vkEndCommandBuffer(copyCommandBuffers[currentFrame]);
+
+            VkSemaphore copyWaitSemaphores[] = { raytraceFinishedSemaphores[currentFrame] };
+            VkPipelineStageFlags copyWaitStages[] = { VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT };
+
+            submitInfo.pCommandBuffers = &copyCommandBuffers[currentFrame];
+            submitInfo.waitSemaphoreCount = 1;
+            submitInfo.pWaitSemaphores = copyWaitSemaphores;
+            submitInfo.pWaitDstStageMask = copyWaitStages;
+            submitInfo.signalSemaphoreCount = 0;
+            submitInfo.pSignalSemaphores = nullptr;
+
+            if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, copyFences[currentFrame]) != VK_SUCCESS) {
+                throw std::runtime_error("failed to submit image-to-buffer copy command buffer!");
+            }
+
+            vkWaitForFences(device, 1, &copyFences[currentFrame], VK_TRUE, UINT64_MAX);
+            vkResetFences(device, 1, &copyFences[currentFrame]);
+
+            // Denoise output image using OIDN
+            colorPtr = nullptr;
+            outputPtr = (void*)malloc(outputImageSize);
+
+            vkMapMemory(device, denoiseBufferMemories[currentFrame], 0, (VkDeviceSize)outputImageSize, 0, &colorPtr);
+
+            size_t pixelByteStride = 4 * sizeof(float);
+            size_t rowStride = outputImageExtent.width * pixelByteStride;
+            oidnFilter.setImage("color", colorPtr, oidn::Format::Float3, outputImageExtent.width, outputImageExtent.height, 0, pixelByteStride, rowStride);
+            oidnFilter.setImage("output", outputPtr, oidn::Format::Float3, outputImageExtent.width, outputImageExtent.height, 0, pixelByteStride, rowStride);
+            oidnFilter.commit();
+            oidnFilter.execute();
+
+            const char* oidnErrorMsg;
+            if (oidnDevice.getError(oidnErrorMsg) == oidn::Error::None) {
+                memcpy(colorPtr, outputPtr, outputImageSize);
+            } else {
+                std::cout << "OIDN error: " << oidnErrorMsg << std::endl;
+            }
+
+            vkUnmapMemory(device, denoiseBufferMemories[currentFrame]);
+
+            free(outputPtr);
+            outputPtr = nullptr;
+
+            // Copy denoised image in denoise buffer to output image
+            vkResetCommandBuffer(copyCommandBuffers[currentFrame], 0);
+            vkBeginCommandBuffer(copyCommandBuffers[currentFrame], &beginInfo);
+            VkCmd::transitionImageLayout(
+                copyCommandBuffers[currentFrame],
+                outputImages[currentFrame],
+                VK_FORMAT_R32G32B32A32_SFLOAT,
+                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                queueFamilies.graphicsFamily.value(),
+                queueFamilies.graphicsFamily.value()
+            );
+            VkCmd::copyBufferToImage(copyCommandBuffers[currentFrame], denoiseBuffers[currentFrame], outputImages[currentFrame], outputImageExtent.width, outputImageExtent.height);
+            vkEndCommandBuffer(copyCommandBuffers[currentFrame]);
+
+            VkSemaphore copySignalSemaphores[] = { copySemaphores[currentFrame] };
+
+            submitInfo.pCommandBuffers = &copyCommandBuffers[currentFrame];
+            submitInfo.waitSemaphoreCount = 0;
+            submitInfo.pWaitSemaphores = nullptr;
+            submitInfo.pWaitDstStageMask = nullptr;
+            submitInfo.signalSemaphoreCount = 1;
+            submitInfo.pSignalSemaphores = copySignalSemaphores;
+
+            if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE) != VK_SUCCESS) {
+                throw std::runtime_error("failed to submit buffer-to-image copy command buffer!");
+            }
+        }
+
         // Record and submit draw command buffer
         vkResetCommandBuffer(graphicsCommandBuffers[currentFrame], 0);
         recordGraphicsCommandBuffer(graphicsCommandBuffers[currentFrame], imageIndex);
 
-        VkSemaphore graphicsWaitSemaphores[] = { raytraceFinishedSemaphores[currentFrame] };
-        VkPipelineStageFlags graphicsWaitStages[] = { VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT };
+        VkSemaphore graphicsWaitSemaphores[] = { useDenoising ? copySemaphores[currentFrame] : raytraceFinishedSemaphores[currentFrame] };
+        VkPipelineStageFlags graphicsWaitStages[] = { VK_PIPELINE_STAGE_TRANSFER_BIT };
         VkSemaphore graphicsSignalSemaphores[] = { renderFinishedSemaphores[currentFrame] };
 
         submitInfo.pCommandBuffers = &graphicsCommandBuffers[currentFrame];
+        submitInfo.waitSemaphoreCount = 1;
         submitInfo.pWaitSemaphores = graphicsWaitSemaphores;
         submitInfo.pWaitDstStageMask = graphicsWaitStages;
+        submitInfo.signalSemaphoreCount = 1;
         submitInfo.pSignalSemaphores = graphicsSignalSemaphores;
 
         if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFences[currentFrame]) != VK_SUCCESS) {
@@ -1271,9 +1417,16 @@ private:
 
         if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
             glfwSetWindowShouldClose(window, true);
+        } else if (key == GLFW_KEY_F && action == GLFW_PRESS) {
+            app->useDenoising = !app->useDenoising;
+            if (!app->useDenoising) {
+                app->firstMouse = true;
+            }
         }
 
-        app->camera.handleKeyInput(window, key, action);
+        if (!app->useDenoising) {
+            app->camera.handleKeyInput(window, key, action);
+        }
     }
 
     VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger) {
@@ -1430,6 +1583,8 @@ private:
     }
 
     void updateMouseInput() {
+        if (useDenoising) return;
+
         double mouseX, mouseY;
         glfwGetCursorPos(window, &mouseX, &mouseY);
 
