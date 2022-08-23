@@ -367,8 +367,6 @@ FodyWeavers.xsd
 /VulkanProject.sln
 /VulkanProject.vcxproj
 /VulkanProject.vcxproj.filters
-/lib
-/include
 
 # Exceptions
 !res/models/viking_room.obj
