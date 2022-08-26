@@ -166,7 +166,7 @@ void VkInit::Buffer(
     if (initData != nullptr && initDataSize != 0) {
         void* data;
         vkMapMemory(device, *pBufferMemory, 0, size, 0, &data);
-        memcpy(data, initData, initDataSize);
+        std::memcpy(data, initData, initDataSize);
         vkUnmapMemory(device, *pBufferMemory);
     }
 }

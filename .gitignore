@@ -361,12 +361,11 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# Exceptions
 /glfw3.dll
 /OpenImageDenoise.dll
 /tbb12.dll
-/VulkanProject.sln
-/VulkanProject.vcxproj
-/VulkanProject.vcxproj.filters
-
-# Exceptions
-!res/models/viking_room.obj
+/VulkanProject*
+/build
+/VulkanRaytracing*

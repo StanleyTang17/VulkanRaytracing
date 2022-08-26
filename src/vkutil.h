@@ -10,6 +10,7 @@
 #include <stdexcept>
 #include <vector>
 #include <optional>
+#include <cstring>
 
 struct QueueFamilyIndices {
     std::optional<uint32_t> graphicsFamily;

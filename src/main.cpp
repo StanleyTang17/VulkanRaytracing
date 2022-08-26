@@ -1272,7 +1272,7 @@ private:
 
             const char* oidnErrorMsg;
             if (oidnDevice.getError(oidnErrorMsg) == oidn::Error::None) {
-                memcpy(colorPtr, outputPtr, outputImageSize);
+                std::memcpy(colorPtr, outputPtr, outputImageSize);
             } else {
                 std::cout << "OIDN error: " << oidnErrorMsg << std::endl;
             }
@@ -1564,7 +1564,7 @@ private:
     }
 
     void updateUniformBuffer(uint32_t currentFrame) {
-        static std::chrono::steady_clock::time_point startTime = std::chrono::high_resolution_clock::now();
+        static auto startTime = std::chrono::high_resolution_clock::now();
 
         auto currentTime = std::chrono::high_resolution_clock::now();
         float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
@@ -1578,7 +1578,7 @@ private:
 
         void* data;
         vkMapMemory(device, uniformBuffersMemories[currentFrame], 0, sizeof(ubo), 0, &data);
-        memcpy(data, &ubo, sizeof(ubo));
+        std::memcpy(data, &ubo, sizeof(ubo));
         vkUnmapMemory(device, uniformBuffersMemories[currentFrame]);
     }
 
