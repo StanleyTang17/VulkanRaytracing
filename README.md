@@ -26,7 +26,7 @@ A real-time raytracing program in Vulkan. This program uses compute shaders to c
 10. Select the build (e.g. Debug x64 or Release x64)
 11. Click on `Build -> Build VulkanRaytracing`
 12. Copy the executable from the output folder to the project root directory
-13. Copy `glfw3.dll` `OpenImageDenoiser.dll` `tbb12.dll` from the `lib/windows` folder to the project root directory
+13. Copy all the DLLs from `lib/windows/DLLs/` to the project root directory
 14. Run the executable in the project root directory
 
 ### Linux x86_64 Build

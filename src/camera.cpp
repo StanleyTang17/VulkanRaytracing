@@ -17,7 +17,7 @@ Camera::Camera() {
 	verticalMove = 0;
 	speed = 3.0f;
 
-	this->updateVectors();
+	updateVectors();
 }
 
 void Camera::updateVectors() {

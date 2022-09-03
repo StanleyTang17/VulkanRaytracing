@@ -5,7 +5,7 @@
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
 
-#include<glfw/glfw3.h>
+#include <glfw/glfw3.h>
 
 class Camera
 {
