@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <unordered_set>
 #include <chrono>
+#include <string>
 
 
 
@@ -1972,7 +1973,8 @@ private:
 
         vkMapMemory(device, textVertexBufferMemories[currentFrame], 0, VK_WHOLE_SIZE, 0, (void**)&textVertexData[currentFrame]);
 
-        addText(useDenoising ? "OIDN filter [F]: ON" : "OIDN filter [F]: OFF", topLeft.x, topLeft.y - scale * font.getFontSize(), scale, textColor);
+        addText("SPP: " + std::to_string(numSamples), topLeft.x, topLeft.y - scale * font.getFontSize(), scale, glm::vec3(0.0f));
+        addText(useDenoising ? "OIDN filter [F]: ON" : "OIDN filter [F]: OFF", topLeft.x, topLeft.y - 2 * scale * font.getFontSize(), scale, textColor);
 
         vkUnmapMemory(device, textVertexBufferMemories[currentFrame]);
     }

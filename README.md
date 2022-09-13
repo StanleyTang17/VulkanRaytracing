@@ -3,6 +3,12 @@ A real-time raytracing program in Vulkan. This program uses compute shaders to c
 
 ## Gallery
 
+##### Rendering without OIDN
+![4 SPP without OIDN](./screenshots/4SPP_without_OIDN.png)
+
+##### Rendering with OIDN
+![4 SPP with OIDN](./screenshots/4SPP_with_OIDN.png)
+
 ## Build
 ### Windows Build
 ##### Prerequisites:
